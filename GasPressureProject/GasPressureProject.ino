@@ -8,12 +8,18 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+#define DHTPIN 2    // modify to the pin we connected
+ 
+#define DHTTYPE DHT21   // AM2301 
+
 /*
 SCL A5
 SDA A4
  */
 SoftwareSerial sim(12, 13);//D7-13  D8=15 TX RX 
 LiquidCrystal_I2C display(0x3F,16,2); 
+DHT dht(DHTPIN, DHTTYPE);
 
 String numero = "+258848856808";//
 
@@ -27,6 +33,7 @@ float Vref = 3.3;
 
 void setup() {
    Serial.begin(9600);
+   dht.begin();
    sim.begin(9600);
    display.init();
    display.backlight();
@@ -51,6 +58,23 @@ void comeco()
   delay(1000);
   }
 void loop() {
+ float h = dht.readHumidity();
+ float t = dht.readTemperature();
+ // check if returns are valid, if they are NaN (not a number) then something went wrong!
+ if (isnan(t) || isnan(h)) 
+ {
+   Serial.println("Failed to read from DHT");
+ } 
+ else 
+ {
+   Serial.print("Humidity: "); 
+   Serial.print(h);
+   Serial.print(" %\t");
+   Serial.print("Temperature: "); 
+   Serial.print(t);
+   Serial.println(" *C");
+   delay(2000);
+ 
   
   Serial.print(millis());
   Serial.print(",");
@@ -74,17 +98,19 @@ void loop() {
   display.setCursor(13,0);
   display.print("PSI");
   display.setCursor(0, 1);
-  display.print("Percentage: ");
-  display.setCursor(12,1);
-  display.print(Percentage);
-  display.setCursor(15,1);
-  display.print("%");
+  display.print("temp: ");
+  display.setCursor(9,1);
+  display.print(t);
+  display.setCursor(14,1);
+  display.println(" °C");
   post();
   esperar();
-  
+ } 
 }
  void post()
  {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
   Pressure = analogRead(A0);
   Pressure =Pressure +SensorOffset;
   int Percentage=map(Pressure,192,1023,0,100);
@@ -126,7 +152,7 @@ void loop() {
   sim.println("AT+CIPSEND");
   delay(4000);
   ShowSerialData();
-  String str="GET https://api.thingspeak.com/update?api_key=XSZW2LU9ZDBTPSQA&field1=0" + String(Pressure) +"&field2="+String(Percentage);
+  String str="GET https://api.thingspeak.com/update?api_key=XSZW2LU9ZDBTPSQA&field1=0" + String(Pressure) +"&field2="+String(Percentage)+"&field3="+String(t)+"&field4="+String(h);
   Serial.println(str);
   sim.println(str);
   delay(4000);
@@ -147,6 +173,8 @@ void ShowSerialData()
 }
 void mensagem()
 {
+ float h = dht.readHumidity();
+ float t = dht.readTemperature();
  Pressure = analogRead(A0);
  int Percentage=map(Pressure,192,1023,0,100);
  Pressure =(Pmax-Pmin)*Vref/(1023*Resistor*(0.02-0.004))*(Pressure-1023*0.004*Resistor/Vref);
@@ -161,7 +189,10 @@ void mensagem()
   sim.print("PSI");
   sim.print(" equivalente a ");
   sim.print(Percentage);
-  sim.println("% .");
+  sim.println("% ,");
+  sim.print(" com uma temperatura de");
+  sim.print(t);
+  sim.println("graus .");
   delay(100);
   sim.println((char)26);
   delay(1000);
