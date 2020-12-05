@@ -9,6 +9,8 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
+#include "Timer.h"
+
 #define DHTPIN 2    // modify to the pin we connected
 
 #define DHTTYPE DHT21   // AM2301 
@@ -20,11 +22,26 @@
 SoftwareSerial sim(12, 13);//D7-13  D8=15 TX RX
 LiquidCrystal_I2C display(0x3F, 16, 2);
 DHT dht(DHTPIN, DHTTYPE);
-
+Timer tempo;
 
 String numero = "+258848856808";//
 int sensorVal;
-float voltage, pressure_pascal, pressure_bar;
+float voltage, pressure_pascal, pressure_bar, pressure_psi;
+
+/////////////Temperatura////////////////////
+float V;
+float tempC;
+float temp1;
+float calibration;
+float Rx;
+//float C = 71.9336;
+//float slope = 139.6071;
+float C = 68.583;
+float slope = 195.45;
+float R0 = 100.0;
+float alpha = 0.00385;
+int Vin = A0; // Vin is Analog Pin A0
+
 
 
 void setup() {
@@ -38,6 +55,9 @@ void setup() {
   display.setCursor(0, 1);
   display.print("Sistema iniciado");
   delay(1000);
+  pinMode(Vin, INPUT);
+  //analogReference(INTERNAL);
+  //tempo.every(100, takeReading);
 
   Serial.println("Time, Raw reading, Corrected reading");
   comeco();
@@ -54,8 +74,17 @@ void comeco()
   delay(1000);
 }
 void loop() {
+  //tempo.update();
   float h = dht.readHumidity();
   float t = dht.readTemperature();
+
+  //temperatura pt100
+  V = (analogRead(Vin) / 1023.0) * 1.1;
+  Rx = V * slope + C;
+  temp1 = (Rx / R0 - 1.0) / alpha;
+  calibration = 0.3 + (0.005 * temp1);
+  tempC = temp1 - calibration;
+
   if (isnan(t) || isnan(h))
   {
     Serial.println("Falha na leitura do sensor de temperatura externo");
@@ -65,10 +94,10 @@ void loop() {
     Serial.print("Humidade: ");
     Serial.print(h);
     Serial.print(" %\t");
-    Serial.print("Temperatura: ");
+    Serial.print("TemperaturaExterna: ");
     Serial.print(t);
     Serial.println(" *C");
-    delay(2000);
+    delay(400);
 
     sensorVal = analogRead(A0);
     Serial.print("Sensor Value: ");
@@ -80,10 +109,14 @@ void loop() {
 
     pressure_pascal = (3.0 * ((float)voltage - 0.47)) * 1000000.0;
     pressure_bar = pressure_pascal / 10e5;
+    pressure_psi = pressure_bar * 14.05;
     Serial.print("  Pressure = ");
     Serial.print(pressure_bar);
     Serial.println(" bars");
     Serial.print("Pressure = ");
+    Serial.print(pressure_psi);
+    Serial.println(" psi");
+
 
     display.clear();
     display.setCursor(0, 0);
@@ -106,12 +139,19 @@ void post()
 {
   float h = dht.readHumidity();
   float t = dht.readTemperature();
-  
+
   sensorVal = analogRead(A0);
   voltage = (sensorVal * 5.0) / 1024.0;
   pressure_pascal = (3.0 * ((float)voltage - 0.47)) * 1000000.0;
   pressure_bar = pressure_pascal / 10e5;
+  pressure_psi = pressure_bar * 14.05;
   
+  V = (analogRead(Vin) / 1023.0) * 1.1;
+  Rx = V * slope + C;
+  temp1 = (Rx / R0 - 1.0) / alpha;
+  calibration = 0.3 + (0.005 * temp1);
+  tempC = temp1 - calibration;
+
   if (sim.available())
     Serial.write(sim.read());
 
@@ -148,7 +188,7 @@ void post()
   sim.println("AT+CIPSEND");
   delay(4000);
   ShowSerialData();
-  String str = "GET https://api.thingspeak.com/update?api_key=XSZW2LU9ZDBTPSQA&field1=0" + String(pressure_bar) + "&field2=" + String(Percentage) + "&field3=" + String(t) + "&field4=" + String(h);
+  String str = "GET https://api.thingspeak.com/update?api_key=GVIF7QQYZWMU1IVU&field1=0" + String(pressure_bar) + "&field2=" + String(pressure_psi) + "&field3=" + String(tempC) + "&field4=" + String(t)+ "&field5=" + String(h);
   Serial.println(str);
   sim.println(str);
   delay(4000);
@@ -171,26 +211,34 @@ void mensagem()
 {
   float h = dht.readHumidity();
   float t = dht.readTemperature();
-    sensorVal = analogRead(A0);
+  sensorVal = analogRead(A0);
   voltage = (sensorVal * 5.0) / 1024.0;
   pressure_pascal = (3.0 * ((float)voltage - 0.47)) * 1000000.0;
   pressure_bar = pressure_pascal / 10e5;
+  pressure_psi = pressure_bar * 14.05;
+
+  V = (analogRead(Vin) / 1023.0) * 1.1;
+  Rx = V * slope + C;
+  temp1 = (Rx / R0 - 1.0) / alpha;
+  calibration = 0.3 + (0.005 * temp1);
+  tempC = temp1 - calibration;
+
   delay(100);
   sim.println("AT+CMGF=1");
   delay(1000);
   sim.println("AT+CMGS=\"" + numero + "\"\r");
   delay(1000);
   sim.print("A pressao eh ");
-  sim.print(pressure_bar);
+  sim.print(pressure_psi);
   sim.print("PSI");
-  sim.print(" equivalente a ");
-  sim.print(Percentage);
-  sim.println("% ,");
-  sim.print(" com uma temperatura de");
+  sim.print(" temperaturaExterna ");
   sim.print(t);
-  sim.println("graus .");
+  sim.println("C ,");
+  sim.print(" temperaturaPT100: ");
+  sim.print(tempC);
+  sim.println("graus.");
   delay(100);
-  sim.println((char)26);
+  sim.println((char)50);
   delay(1000);
 }
 void esperar()
@@ -201,3 +249,23 @@ void esperar()
     Serial.println("Meio segundo");
   }
 }
+/*
+void takeReading() {
+  V = (analogRead(Vin) / 1023.0) * 1.1;
+  Rx = V * slope + C;
+  temp1 = (Rx / R0 - 1.0) / alpha;
+  calibration = 0.3 + (0.005 * temp1);
+  tempC = temp1 - calibration;
+  Serial.print("Bits: ");
+  Serial.println(analogRead(Vin));
+  Serial.print("Rx: ");
+  Serial.println(Rx);
+  Serial.print("Volts: ");
+  Serial.println(V);
+  Serial.print("temp1: ");
+  Serial.println(temp1);
+  Serial.print("tempC: ");
+  Serial.println(tempC);
+  delay(3000);
+}
+*/
